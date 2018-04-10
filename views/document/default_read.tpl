@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 
-    <title>{{.Model.BookName}} - Powered by MinDoc</title>
+    <title>{{.Model.BookName}} - Powered by AccessDoc</title>
 
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
