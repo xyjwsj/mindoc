@@ -1,13 +1,14 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
+    <title>{{.SITE_NAME}} - Powered by AccessDoc</title>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-
-    <title>网站首页 - Powered by AccessDoc</title>
+    <meta name="renderer" content="webkit">
     <meta name="author" content="Minho" />
     <meta name="site" content="https://www.iminho.me" />
+    <meta name="description" content="{{.site_description}}">
     <!-- Bootstrap -->
     <link href="{{cdncss "/static/bootstrap/css/bootstrap.min.css"}}" rel="stylesheet">
     <link href="{{cdncss "/static/font-awesome/css/font-awesome.min.css"}}" rel="stylesheet">
@@ -44,7 +45,7 @@
                     <dl class="manual-item-standard">
                         <dt>
                             <a href="{{urlfor "DocumentController.Index" ":key" $item.Identify}}" title="{{$item.BookName}}-{{$item.CreateName}}" target="_blank">
-                                <img src="{{$item.Cover}}" class="cover" alt="{{$item.BookName}}-{{$item.CreateName}}">
+                                <img src="{{cdnimg $item.Cover}}" class="cover" alt="{{$item.BookName}}-{{$item.CreateName}}" onerror="this.src='{{cdnimg "static/images/book.jpg"}}';">
                             </a>
                         </dt>
                         <dd>
@@ -54,7 +55,7 @@
                             <span class="author">
                                 <b class="text">作者</b>
                                 <b class="text">-</b>
-                                <b class="text">{{$item.CreateName}}</b>
+                                <b class="text">{{if eq $item.RealName "" }}{{$item.CreateName}}{{else}}{{$item.RealName}}{{end}}</b>
                             </span>
                         </dd>
                     </dl>

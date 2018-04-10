@@ -88,7 +88,6 @@ function openDeleteDocumentDialog($node) {
             layer.close(index);
             if(res.errcode === 0){
                 window.treeCatalog.delete_node($node);
-                resetEditor($node);
             }else{
                 layer.msg("删除失败",{icon : 2})
             }
@@ -135,7 +134,6 @@ function pushDocumentCategory($node) {
         if(item.id === $node.id){
 
             window.documentCategory[index] = $node;
-            console.log( window.documentCategory[index]);
             return;
         }
     }
@@ -154,6 +152,24 @@ function pushVueLists($lists) {
     }
 }
 
+/**
+ * 发布项目
+ */
+function releaseBook() {
+    $.ajax({
+        url: window.releaseURL,
+        data: { "identify": window.book.identify },
+        type: "post",
+        dataType: "json",
+        success: function (res) {
+            if (res.errcode === 0) {
+                layer.msg("发布任务已推送到任务队列，稍后将在后台执行。");
+            } else {
+                layer.msg(res.message);
+            }
+        }
+    });
+}
 //实现小提示
 $("[data-toggle='tooltip']").hover(function () {
     var title = $(this).attr('data-title');
@@ -239,7 +255,6 @@ function uploadImage($id,$callback) {
 
                 var imageFile = clipboard.items[i].getAsFile();
 
-                console.log(imageFile)
                 var fileName = Date.parse(new Date());
 
                 switch (imageFile.type){
@@ -285,6 +300,16 @@ function uploadImage($id,$callback) {
     });
 }
 
+/**
+ * 初始化代码高亮
+ */
+function initHighlighting() {
+    $('pre code,pre.ql-syntax').each(function (i, block) {
+        hljs.highlightBlock(block);
+    });
+
+    hljs.initLineNumbersOnLoad();
+}
 $(function () {
     window.vueApp = new Vue({
         el : "#attachList",

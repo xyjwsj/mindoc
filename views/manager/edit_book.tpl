@@ -9,10 +9,12 @@
 
     <!-- Bootstrap -->
     <link href="{{cdncss "/static/bootstrap/css/bootstrap.min.css"}}" rel="stylesheet">
+    <link href="{{cdncss "/static/bootstrap/plugins/tagsinput/bootstrap-tagsinput.css"}}" rel="stylesheet">
+    <link href="{{cdncss "/static/bootstrap/plugins/bootstrap-switch/css/bootstrap3//bootstrap-switch.min.css"}}" rel="stylesheet">
     <link href="{{cdncss "/static/font-awesome/css/font-awesome.min.css"}}" rel="stylesheet">
     <link href="{{cdncss "/static/webuploader/webuploader.css"}}" rel="stylesheet">
     <link href="{{cdncss "/static/cropper/2.3.4/cropper.min.css"}}" rel="stylesheet">
-    <link href="/static/css/main.css" rel="stylesheet">
+    <link href="{{cdncss "/static/css/main.css"}}" rel="stylesheet">
     <!-- HTML5 shim and Respond.js for IE8 support of HTML5 elements and media queries -->
     <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
     <!--[if lt IE 9]>
@@ -33,6 +35,7 @@
                     {{/*<li><a href="{{urlfor "ManagerController.Comments" }}" class="item"><i class="fa fa-comments-o" aria-hidden="true"></i> 评论管理</a> </li>*/}}
                     <li><a href="{{urlfor "ManagerController.Setting" }}" class="item"><i class="fa fa-cogs" aria-hidden="true"></i> 配置管理</a> </li>
                     <li><a href="{{urlfor "ManagerController.AttachList" }}" class="item"><i class="fa fa-cloud-upload" aria-hidden="true"></i> 附件管理</a> </li>
+                    <li><a href="{{urlfor "ManagerController.LabelList" }}" class="item"><i class="fa fa-bookmark" aria-hidden="true"></i> 标签管理</a> </li>
                 </ul>
             </div>
             <div class="page-right">
@@ -50,7 +53,7 @@
                 </div>
                 <div class="box-body" style="padding-right: 200px;">
                     <div class="form-left">
-                        <form method="post" id="bookEditForm" action="{{urlfor "ManagerController.EditBook"}}">
+                        <form method="post" id="bookEditForm" action="{{urlfor "ManagerController.EditBook" ":key" .Model.Identify}}">
                             <input type="hidden" name="identify" value="{{.Model.Identify}}">
                             <div class="form-group">
                                 <label>标题</label>
@@ -58,7 +61,17 @@
                             </div>
                             <div class="form-group">
                                 <label>标识</label>
-                                <input type="text" class="form-control" value=" {{.BaseUrl}}{{urlfor "DocumentController.Index" ":key" .Model.Identify}}" disabled placeholder="项目标识">
+                                <input type="text" class="form-control" value="{{urlfor "DocumentController.Index" ":key" .Model.Identify}}" disabled placeholder="项目标识">
+                            </div>
+                            <div class="form-group">
+                                <label>历史记录数量</label>
+                                <input type="text" class="form-control" name="history_count" value="{{.Model.HistoryCount}}" placeholder="历史记录数量">
+                                <p class="text">当开启文档历史时,该值会限制每个文档保存的历史数量</p>
+                            </div>
+                            <div class="form-group">
+                                <label>公司标识</label>
+                                <input type="text" class="form-control" name="publisher" value="{{.Model.Publisher}}" placeholder="公司名称">
+                                <p class="text">导出文档PDF文档时显示的页脚</p>
                             </div>
                             <div class="form-group">
                                 <label>排序</label>
@@ -108,6 +121,38 @@
                             </div>
                             {{end}}
                             <div class="form-group">
+                                <label for="autoRelease">自动发布</label>
+                                <div class="controls">
+                                    <div class="switch switch-small" data-on="primary" data-off="info">
+                                        <input type="checkbox" id="autoRelease" name="auto_release"{{if .Model.AutoRelease }} checked{{end}} data-size="small">
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="autoRelease">开启导出</label>
+                                <div class="controls">
+                                    <div class="switch switch-small" data-on="primary" data-off="info">
+                                        <input type="checkbox" id="isDownload" name="is_download"{{if .Model.IsDownload }} checked{{end}} data-size="small" placeholder="开启导出">
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="autoRelease">开启分享</label>
+                                <div class="controls">
+                                    <div class="switch switch-small" data-on="primary" data-off="info">
+                                        <input type="checkbox" id="enableShare" name="enable_share"{{if .Model.IsEnableShare }} checked{{end}} data-size="small" placeholder="开启分享">
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="autoRelease">设置第一篇文档为默认首页</label>
+                                <div class="controls">
+                                    <div class="switch switch-small" data-on="primary" data-off="info">
+                                        <input type="checkbox" id="is_use_first_document" name="is_use_first_document"{{if .Model.IsUseFirstDocument }} checked{{end}} data-size="small" placeholder="设置第一篇文档为默认首页">
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-group">
                                 <button type="submit" id="btnSaveBookInfo" class="btn btn-success" data-loading-text="保存中...">保存修改</button>
                                 <span id="form-error-message" class="error-message"></span>
                             </div>
@@ -156,7 +201,7 @@
                 <div class="modal-footer">
                     <span class="error-message" id="form-error-message1"></span>
                     <button type="button" class="btn btn-default" data-dismiss="modal">取消</button>
-                    <button type="submit" class="btn btn-primary" data-loading-text="变更中..." id="btnChangePrivatelyOwned">确定</button>
+                    <button type="submit" class="btn btn-primary" data-loading-text="正在保存..." id="btnChangePrivatelyOwned">确定</button>
                 </div>
             </div>
         </form>
@@ -181,7 +226,7 @@
                 <div class="modal-footer">
                     <span id="form-error-message2" class="error-message"></span>
                     <button type="button" class="btn btn-default" data-dismiss="modal">取消</button>
-                    <button type="submit" id="btnDeleteBook" class="btn btn-primary">确定删除</button>
+                    <button type="submit" id="btnDeleteBook" class="btn btn-primary" data-loading-text="正在删除...">确定删除</button>
                 </div>
             </div>
         </form>
@@ -208,7 +253,7 @@
                 <div class="modal-footer">
                     <span id="form-error-message3" class="error-message"></span>
                     <button type="button" class="btn btn-default" data-dismiss="modal">取消</button>
-                    <button type="submit" id="btnTransferBook" class="btn btn-primary">确定转让</button>
+                    <button type="submit" id="btnTransferBook" daata-loading-text="正在转让..." class="btn btn-primary">确定转让</button>
                 </div>
             </div>
         </form>
@@ -219,9 +264,12 @@
 <script src="{{cdnjs "/static/webuploader/webuploader.min.js"}}" type="text/javascript"></script>
 <script src="{{cdnjs "/static/cropper/2.3.4/cropper.min.js"}}" type="text/javascript"></script>
 <script src="{{cdnjs "/static/js/jquery.form.js"}}" type="text/javascript"></script>
-<script src="/static/js/main.js" type="text/javascript"></script>
+<script src="{{cdnjs "/static/bootstrap/plugins/tagsinput/bootstrap-tagsinput.min.js"}}" type="text/javascript"></script>
+<script src="{{cdnjs "/static/bootstrap/plugins/bootstrap-switch/js/bootstrap-switch.min.js"}}" type="text/javascript"></script>
+<script src="{{cdnjs "/static/js/main.js"}}" type="text/javascript"></script>
 <script type="text/javascript">
     $(function () {
+        $("#autoRelease,#enableShare,#isDownload,#is_use_first_document").bootstrapSwitch();
         $("#upload-logo-panel").on("hidden.bs.modal",function () {
             $("#upload-logo-panel").find(".modal-body").html(window.modalHtml);
         }).on("show.bs.modal",function () {
@@ -274,11 +322,14 @@
             }
         });
         $("#deleteBookForm").ajaxForm({
+            beforeSubmit : function () {
+                $("#btnDeleteBook").button("loading");
+            },
             success : function (res) {
                 if(res.errcode === 0){
                     window.location = "{{urlfor "ManagerController.Books"}}";
                 }else{
-                    console.log(res.message)
+                    $("#btnDeleteBook").button("reset");
                     showError(res.message,"#form-error-message2");
                 }
             }

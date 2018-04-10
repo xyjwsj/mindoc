@@ -11,7 +11,7 @@
     <link href="{{cdncss "/static/bootstrap/css/bootstrap.min.css"}}" rel="stylesheet">
     <link href="{{cdncss "/static/font-awesome/css/font-awesome.min.css"}}" rel="stylesheet">
 
-    <link href="/static/css/main.css" rel="stylesheet">
+    <link href="{{cdncss "/static/css/main.css"}}" rel="stylesheet">
     <!-- HTML5 shim and Respond.js for IE8 support of HTML5 elements and media queries -->
     <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
     <!--[if lt IE 9]>
@@ -38,12 +38,12 @@
                     <div class="source">
                         <span class="item">来自：<a href="{{urlfor "DocumentController.Index" ":key" $item.BookIdentify}}" target="_blank">{{$item.BookName}}</a></span>
                         <span class="item">作者：{{$item.Author}}</span>
-                        <span class="item">更新时间：{{date  $item.ModifyTime "Y-m-d H:i:s"}}</span>
+                        <span class="item">更新时间：{{date_format  $item.ModifyTime "2006-01-02 15:04:05"}}</span>
                     </div>
                 </div>
                 {{else}}
                 <div class="search-empty">
-                    <img src="/static/images/search_empty.png" class="empty-image">
+                    <img src="{{cdnimg "/static/images/search_empty.png"}}" class="empty-image">
 					<span class="empty-text">暂无相关搜索结果</span>
                 </div>
                 {{end}}

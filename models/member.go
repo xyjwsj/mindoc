@@ -15,11 +15,13 @@ import (
 	"github.com/astaxie/beego/orm"
 	"github.com/lifei6671/mindoc/conf"
 	"github.com/lifei6671/mindoc/utils"
+	"math"
 )
 
 type Member struct {
 	MemberId int    `orm:"pk;auto;unique;column(member_id)" json:"member_id"`
 	Account  string `orm:"size(100);unique;column(account)" json:"account"`
+	RealName string  `orm:"size(255);column(real_name)" json:"real_name"`
 	Password string `orm:"size(1000);column(password)" json:"-"`
 	//认证方式: local 本地数据库 /ldap LDAP
 	AuthMethod  string `orm:"column(auth_method);default(local);size(50);" json:"auth_method"`
@@ -108,7 +110,7 @@ func (m *Member) ldapLogin(account string, password string) (*Member, error) {
 		beego.AppConfig.String("ldap_base"),
 		ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false,
 		//修改objectClass通过配置文件获取值
-		fmt.Sprintf("(&(%s)(%s=%s))",beego.AppConfig.String("ldap_filter"), beego.AppConfig.String("ldap_attribute"), account),
+		fmt.Sprintf("(&(%s)(%s=%s))", beego.AppConfig.String("ldap_filter"), beego.AppConfig.String("ldap_attribute"), account),
 		[]string{"dn", "mail"},
 		nil,
 	)
@@ -167,7 +169,8 @@ func (m *Member) Add() error {
 	hash, err := utils.PasswordHash(m.Password)
 
 	if err != nil {
-		return err
+		beego.Error("加密用户密码失败 =>",err)
+		return errors.New("加密用户密码失败")
 	}
 
 	m.Password = hash
@@ -177,7 +180,8 @@ func (m *Member) Add() error {
 	_, err = o.Insert(m)
 
 	if err != nil {
-		return err
+		beego.Error("保存用户数据到数据时失败 =>",err)
+		return errors.New("保存用户失败")
 	}
 	m.ResolveRoleName()
 	return nil
@@ -190,8 +194,12 @@ func (m *Member) Update(cols ...string) error {
 	if m.Email == "" {
 		return errors.New("邮箱不能为空")
 	}
+	if c, err := o.QueryTable(m.TableNameWithPrefix()).Filter("email", m.Email).Exclude("member_id",m.MemberId).Count(); err == nil && c > 0 {
+		return errors.New("邮箱已被使用")
+	}
 	if _, err := o.Update(m, cols...); err != nil {
-		return err
+		beego.Error("保存用户信息失败=>",err)
+		return errors.New("保存用户信息失败")
 	}
 	return nil
 }
@@ -228,9 +236,23 @@ func (m *Member) FindByAccount(account string) (*Member, error) {
 	}
 	return m, err
 }
+//批量查询用户
+func (m *Member) FindByAccountList(accounts ...string) ([]*Member,error) {
+	o := orm.NewOrm()
+
+	var members []*Member
+	_,err := o.QueryTable(m.TableNameWithPrefix()).Filter("account__in", accounts).All(&members)
+
+	if err == nil {
+		for _,item := range members {
+			item.ResolveRoleName()
+		}
+	}
+	return members, err
+}
 
 //分页查找用户.
-func (m *Member) FindToPager(pageIndex, pageSize int) ([]*Member, int64, error) {
+func (m *Member) FindToPager(pageIndex, pageSize int) ([]*Member, int, error) {
 	o := orm.NewOrm()
 
 	var members []*Member
@@ -252,7 +274,7 @@ func (m *Member) FindToPager(pageIndex, pageSize int) ([]*Member, int64, error) 
 	for _, m := range members {
 		m.ResolveRoleName()
 	}
-	return members, totalCount, nil
+	return members, int(totalCount), nil
 }
 
 func (c *Member) IsAdministrator() bool {
@@ -279,7 +301,7 @@ func (m *Member) Valid(is_hash_password bool) error {
 		return ErrMemberEmailEmpty
 	}
 	//用户描述必须小于500字
-	if strings.Count(m.Description,"") > 500 {
+	if strings.Count(m.Description, "") > 500 {
 		return ErrMemberDescriptionTooLong
 	}
 	if m.Role != conf.MemberGeneralRole && m.Role != conf.MemberSuperRole && m.Role != conf.MemberAdminRole {
@@ -289,48 +311,47 @@ func (m *Member) Valid(is_hash_password bool) error {
 		m.Status = 0
 	}
 	//邮箱格式校验
-	if  ok,err := regexp.MatchString(conf.RegexpEmail,m.Email); !ok || err != nil || m.Email == "" {
+	if ok, err := regexp.MatchString(conf.RegexpEmail, m.Email); !ok || err != nil || m.Email == "" {
 		return ErrMemberEmailFormatError
 	}
 	//如果是未加密密码，需要校验密码格式
 	if !is_hash_password {
-		if  l := strings.Count(m.Password,"") ; m.Password == "" || l > 50 || l < 6{
+		if l := strings.Count(m.Password, ""); m.Password == "" || l > 50 || l < 6 {
 			return ErrMemberPasswordFormatError
 		}
 	}
 	//校验邮箱是否呗使用
-	if member,err := NewMember().FindByFieldFirst("email",m.Account); err == nil && member.MemberId > 0 {
+	if member, err := NewMember().FindByFieldFirst("email", m.Account); err == nil && member.MemberId > 0 {
 		if m.MemberId > 0 && m.MemberId != member.MemberId {
 			return ErrMemberEmailExist
 		}
-		if m.MemberId <= 0{
-			return  ErrMemberEmailExist
+		if m.MemberId <= 0 {
+			return ErrMemberEmailExist
 		}
 	}
 
-	if m.MemberId > 0{
+	if m.MemberId > 0 {
 		//校验用户是否存在
-		if _,err := NewMember().Find(m.MemberId);err != nil {
+		if _, err := NewMember().Find(m.MemberId); err != nil {
 			return err
 		}
-	}else{
+	} else {
 		//校验账号格式是否正确
-		if ok,err := regexp.MatchString(conf.RegexpAccount,m.Account); m.Account == "" || !ok || err != nil {
+		if ok, err := regexp.MatchString(conf.RegexpAccount, m.Account); m.Account == "" || !ok || err != nil {
 			return ErrMemberAccountFormatError
 		}
 		//校验账号是否被使用
-		if member,err := NewMember().FindByAccount(m.Account); err == nil && member.MemberId > 0 {
+		if member, err := NewMember().FindByAccount(m.Account); err == nil && member.MemberId > 0 {
 			return ErrMemberExist
 		}
 	}
-
 
 	return nil
 }
 
 //删除一个用户.
 
-func (m *Member) Delete(oldId int,newId int) error {
+func (m *Member) Delete(oldId int, newId int) error {
 	o := orm.NewOrm()
 
 	err := o.Begin()
@@ -339,39 +360,39 @@ func (m *Member) Delete(oldId int,newId int) error {
 		return err
 	}
 
-	_,err = o.Raw("DELETE FROM md_members WHERE member_id = ?",oldId).Exec()
+	_, err = o.Raw("DELETE FROM md_members WHERE member_id = ?", oldId).Exec()
 	if err != nil {
 		o.Rollback()
 		return err
 	}
-	_,err = o.Raw("UPDATE md_attachment SET `create_at` = ? WHERE `create_at` = ?",newId,oldId).Exec()
+	_, err = o.Raw("UPDATE md_attachment SET `create_at` = ? WHERE `create_at` = ?", newId, oldId).Exec()
 
 	if err != nil {
 		o.Rollback()
 		return err
 	}
 
-	_,err = o.Raw("UPDATE md_books SET member_id = ? WHERE member_id = ?",newId,oldId).Exec()
+	_, err = o.Raw("UPDATE md_books SET member_id = ? WHERE member_id = ?", newId, oldId).Exec()
 	if err != nil {
 		o.Rollback()
 		return err
 	}
-	_,err = o.Raw("UPDATE md_document_history SET member_id=? WHERE member_id = ?",newId,oldId).Exec()
+	_, err = o.Raw("UPDATE md_document_history SET member_id=? WHERE member_id = ?", newId, oldId).Exec()
 	if err != nil {
 		o.Rollback()
 		return err
 	}
-	_,err = o.Raw("UPDATE md_document_history SET modify_at=? WHERE modify_at = ?",newId,oldId).Exec()
+	_, err = o.Raw("UPDATE md_document_history SET modify_at=? WHERE modify_at = ?", newId, oldId).Exec()
 	if err != nil {
 		o.Rollback()
 		return err
 	}
-	_,err = o.Raw("UPDATE md_documents SET member_id = ? WHERE member_id = ?;",newId,oldId).Exec()
+	_, err = o.Raw("UPDATE md_documents SET member_id = ? WHERE member_id = ?;", newId, oldId).Exec()
 	if err != nil {
 		o.Rollback()
 		return err
 	}
-	_,err = o.Raw("UPDATE md_documents SET modify_at = ? WHERE modify_at = ?",newId,oldId).Exec()
+	_, err = o.Raw("UPDATE md_documents SET modify_at = ? WHERE modify_at = ?", newId, oldId).Exec()
 	if err != nil {
 		o.Rollback()
 		return err
@@ -386,53 +407,37 @@ func (m *Member) Delete(oldId int,newId int) error {
 	//}
 	var relationship_list []*Relationship
 
-	_,err = o.QueryTable(NewRelationship().TableNameWithPrefix()).Filter("member_id",oldId).All(&relationship_list)
+	_, err = o.QueryTable(NewRelationship().TableNameWithPrefix()).Filter("member_id", oldId).Limit(math.MaxInt32).All(&relationship_list)
 
 	if err == nil {
-		for _,relationship := range relationship_list {
+		for _, relationship := range relationship_list {
 			//如果存在创始人，则删除
 			if relationship.RoleId == 0 {
 				rel := NewRelationship()
 
-				err = o.QueryTable(relationship.TableNameWithPrefix()).Filter("book_id",relationship.BookId).Filter("member_id",newId).One(rel)
+				err = o.QueryTable(relationship.TableNameWithPrefix()).Filter("book_id", relationship.BookId).Filter("member_id", newId).One(rel)
 				if err == nil {
-					if _,err := o.Delete(relationship) ; err != nil{
+					if _, err := o.Delete(relationship); err != nil {
 						beego.Error(err)
 					}
 					relationship.RelationshipId = rel.RelationshipId
 				}
 				relationship.MemberId = newId
 				relationship.RoleId = 0
-				if _,err := o.Update(relationship) ; err != nil{
+				if _, err := o.Update(relationship); err != nil {
 					beego.Error(err)
 				}
-			}else{
-				if _,err := o.Delete(relationship) ; err != nil{
+			} else {
+				if _, err := o.Delete(relationship); err != nil {
 					beego.Error(err)
 				}
 			}
 		}
 	}
 
-	if err = o.Commit();err != nil {
+	if err = o.Commit(); err != nil {
 		o.Rollback()
 		return err
 	}
 	return nil
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

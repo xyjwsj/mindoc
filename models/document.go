@@ -3,10 +3,13 @@ package models
 import (
 	"time"
 
-	"bytes"
+	"encoding/json"
 	"fmt"
+	"strconv"
+
 	"github.com/astaxie/beego"
 	"github.com/astaxie/beego/orm"
+	"github.com/lifei6671/mindoc/cache"
 	"github.com/lifei6671/mindoc/conf"
 )
 
@@ -31,6 +34,13 @@ type Document struct {
 	ModifyAt   int           `orm:"column(modify_at);type(int)" json:"-"`
 	Version    int64         `orm:"type(bigint);column(version)" json:"version"`
 	AttachList []*Attachment `orm:"-" json:"attach"`
+}
+
+// 多字段唯一键
+func (m *Document) TableUnique() [][]string {
+	return [][]string{
+		[]string{"book_id", "identify"},
+	}
 }
 
 // TableName 获取对应数据库表名.
@@ -58,6 +68,7 @@ func (m *Document) Find(id int) (*Document, error) {
 	if id <= 0 {
 		return m, ErrInvalidParameter
 	}
+
 	o := orm.NewOrm()
 
 	err := o.QueryTable(m.TableNameWithPrefix()).Filter("document_id", id).One(m)
@@ -65,97 +76,141 @@ func (m *Document) Find(id int) (*Document, error) {
 	if err == orm.ErrNoRows {
 		return m, ErrDataNotExist
 	}
+
 	return m, nil
 }
 
 //插入和更新文档.
 func (m *Document) InsertOrUpdate(cols ...string) error {
 	o := orm.NewOrm()
-
+	var err error
 	if m.DocumentId > 0 {
-		_, err := o.Update(m)
-		return err
+		_, err = o.Update(m, cols...)
 	} else {
-		_, err := o.Insert(m)
+		if m.Identify == "" {
+			book := NewBook()
+			identify := "docs"
+			if err := o.QueryTable(book.TableNameWithPrefix()).One(book,"identify");err == nil {
+				identify = book.Identify
+			}
+			m.Identify = fmt.Sprintf("%s-%d%d",identify,m.BookId,time.Now().Unix())
+		}
+		_, err = o.Insert(m)
 		NewBook().ResetDocumentNumber(m.BookId)
-		return err
 	}
-}
-
-//根据指定字段查询一条文档.
-func (m *Document) FindByFieldFirst(field string, v interface{}) (*Document, error) {
-	o := orm.NewOrm()
-
-	err := o.QueryTable(m.TableNameWithPrefix()).Filter(field, v).One(m)
-
-	return m, err
-}
-
-//递归删除一个文档.
-func (m *Document) RecursiveDocument(doc_id int) error {
-
-	o := orm.NewOrm()
-
-	if doc, err := m.Find(doc_id); err == nil {
-		o.Delete(doc)
-		NewDocumentHistory().Clear(doc.DocumentId)
-	}
-
-	var docs []*Document
-
-	_, err := o.QueryTable(m.TableNameWithPrefix()).Filter("parent_id", doc_id).All(&docs)
-
 	if err != nil {
-		beego.Error("RecursiveDocument => ", err)
 		return err
-	}
-
-	for _, item := range docs {
-		doc_id := item.DocumentId
-		o.QueryTable(m.TableNameWithPrefix()).Filter("document_id", doc_id).Delete()
-		m.RecursiveDocument(doc_id)
 	}
 
 	return nil
 }
 
-//发布文档
-func (m *Document) ReleaseContent(book_id int) {
+//根据文档识别编号和项目id获取一篇文档
+func (m *Document) FindByIdentityFirst(identify string, bookId int) (*Document, error) {
+	o := orm.NewOrm()
+
+	err := o.QueryTable(m.TableNameWithPrefix()).Filter("book_id", bookId).Filter("identify", identify).One(m)
+
+	return m, err
+}
+
+//递归删除一个文档.
+func (m *Document) RecursiveDocument(docId int) error {
 
 	o := orm.NewOrm()
 
-	var docs []*Document
-	_, err := o.QueryTable(m.TableNameWithPrefix()).Filter("book_id", book_id).All(&docs, "document_id", "content")
+	if doc, err := m.Find(docId); err == nil {
+		o.Delete(doc)
+		NewDocumentHistory().Clear(doc.DocumentId)
+	}
+	var maps []orm.Params
 
+	_, err := o.Raw("SELECT document_id FROM " + m.TableNameWithPrefix() + " WHERE parent_id=" + strconv.Itoa(docId)).Values(&maps)
 	if err != nil {
-		beego.Error("发布失败 => ", err)
-		return
+		beego.Error("RecursiveDocument => ", err)
+		return err
 	}
-	for _, item := range docs {
-		item.Release = item.Content
-		attach_list, err := NewAttachment().FindListByDocumentId(item.DocumentId)
-		if err == nil && len(attach_list) > 0 {
-			content := bytes.NewBufferString("<div class=\"attach-list\"><strong>附件</strong><ul>")
-			for _, attach := range attach_list {
-				li := fmt.Sprintf("<li><a href=\"%s\" target=\"_blank\" title=\"%s\">%s</a></li>", attach.HttpPath, attach.FileName, attach.FileName)
 
-				content.WriteString(li)
-			}
-			content.WriteString("</ul></div>")
-			item.Release += content.String()
-		}
-		_, err = o.Update(item, "release")
-		if err != nil {
-			beego.Error(fmt.Sprintf("发布失败 => %+v", item), err)
+	for _, item := range maps {
+		if docId, ok := item["document_id"].(string); ok {
+			id, _ := strconv.Atoi(docId)
+			o.QueryTable(m.TableNameWithPrefix()).Filter("document_id", id).Delete()
+			m.RecursiveDocument(id)
 		}
 	}
+
+	return nil
+}
+
+//将文档写入缓存
+func (m *Document) PutToCache() {
+	go func(m Document) {
+		if v, err := json.Marshal(&m); err == nil {
+			if m.Identify == "" {
+
+				if err := cache.Put("Document.Id."+strconv.Itoa(m.DocumentId), v, time.Second*3600); err != nil {
+					beego.Info("文档缓存失败:", m.DocumentId)
+				}
+			} else {
+				if err := cache.Put(fmt.Sprintf("Document.BookId.%d.Identify.%s", m.BookId, m.Identify), v, time.Second*3600); err != nil {
+					beego.Info("文档缓存失败:", m.DocumentId)
+				}
+			}
+		}
+	}(*m)
+}
+
+//清除缓存
+func (m *Document) RemoveCache() {
+	go func(m Document) {
+		cache.Put("Document.Id."+strconv.Itoa(m.DocumentId), m, time.Second*3600)
+
+		if m.Identify != "" {
+			cache.Put(fmt.Sprintf("Document.BookId.%d.Identify.%s", m.BookId, m.Identify), m, time.Second*3600)
+		}
+	}(*m)
+}
+
+//从缓存获取
+func (m *Document) FromCacheById(id int) (*Document, error) {
+	b := cache.Get("Document.Id." + strconv.Itoa(id))
+	if v, ok := b.([]byte); ok {
+
+		if err := json.Unmarshal(v, m); err == nil {
+			beego.Info("从缓存中获取文档信息成功", m.DocumentId)
+			return m, nil
+		}
+	}
+	defer func() {
+		if m.DocumentId > 0 {
+			m.PutToCache()
+		}
+	}()
+	return m.Find(id)
+}
+
+//根据文档标识从缓存中查询文档
+func (m *Document) FromCacheByIdentify(identify string, bookId int) (*Document, error) {
+	b := cache.Get(fmt.Sprintf("Document.BookId.%d.Identify.%s", bookId, identify))
+	if v, ok := b.([]byte); ok {
+		if err := json.Unmarshal(v, m); err == nil {
+			beego.Info("从缓存中获取文档信息成功", m.DocumentId, identify)
+			return m, nil
+		}
+	}
+	defer func() {
+		if m.DocumentId > 0 {
+			m.PutToCache()
+		}
+	}()
+	return m.FindByIdentityFirst(identify, bookId)
 }
 
 //根据项目ID查询文档列表.
-func (m *Document) FindListByBookId(book_id int) (docs []*Document, err error) {
+func (m *Document) FindListByBookId(bookId int) (docs []*Document, err error) {
 	o := orm.NewOrm()
 
-	_, err = o.QueryTable(m.TableNameWithPrefix()).Filter("book_id", book_id).OrderBy("order_sort").All(&docs)
+	_, err = o.QueryTable(m.TableNameWithPrefix()).Filter("book_id", bookId).OrderBy("order_sort").All(&docs)
 
 	return
 }
