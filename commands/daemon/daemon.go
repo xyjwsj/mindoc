@@ -19,8 +19,8 @@ type Daemon struct {
 func NewDaemon() *Daemon {
 
 	config := &service.Config{
-		Name:             "AccessDoc",                               //服务显示名称
-		DisplayName:      "AccessDoc service",                        //服务名称
+		Name:             "mindocd",                               //服务显示名称
+		DisplayName:      "MinDoc service",                        //服务名称
 		Description:      "A document online management program.", //服务描述
 		WorkingDirectory: conf.WorkingDirectory,
 		Arguments:        os.Args[1:],
